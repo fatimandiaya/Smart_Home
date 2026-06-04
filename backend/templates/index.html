@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Home – Monitoring</title>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0f1117;
+      --surface: #1a1d2e;
+      --border:  #2d3748;
+      --text:    #e2e8f0;
+      --muted:   #718096;
+      --blue:    #63b3ed;
+      --green:   #48bb78;
+      --yellow:  #f6e05e;
+      --red:     #fc8181;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ────────────────────────────────────────────────────────────── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky; top: 0; z-index: 100;
+    }
+    header h1 { font-size: 1.3rem; color: var(--blue); letter-spacing: .5px; }
+    .header-right { display: flex; align-items: center; gap: 1.5rem; font-size: .85rem; }
+
+    .dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: var(--green);
+      display: inline-block; margin-right: 6px;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+    /* ── Alert ─────────────────────────────────────────────────────────────── */
+    #alert-banner {
+      display: none;
+      background: linear-gradient(90deg, #c53030, #e53e3e);
+      color: #fff; text-align: center;
+      padding: .75rem 1rem;
+      font-weight: 600; font-size: 1rem; letter-spacing: .5px;
+    }
+    #alert-banner.show { display: block; }
+
+    /* ── Layout ────────────────────────────────────────────────────────────── */
+    .container { max-width: 1400px; margin: 0 auto; padding: 1.5rem 2rem; }
+
+    /* ── Cards ─────────────────────────────────────────────────────────────── */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 1rem; margin-bottom: 1.5rem;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px; padding: 1.25rem 1rem; text-align: center;
+      transition: border-color .25s;
+    }
+    .card:hover { border-color: var(--blue); }
+    .card-label { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: .4rem; }
+    .card-value { font-size: 2.2rem; font-weight: 700; line-height: 1; }
+    .card-unit  { font-size: .8rem; color: var(--muted); margin-top: .3rem; }
+
+    .dist-bar-wrap { height: 6px; background: var(--border); border-radius: 3px; margin-top: .5rem; }
+    .dist-bar { height: 6px; border-radius: 3px; background: var(--blue); transition: width .4s; max-width: 100%; }
+
+    /* ── Two-column ─────────────────────────────────────────────────────────── */
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 1.5rem; margin-bottom: 1.5rem;
+    }
+    @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+
+    /* ── Panel ─────────────────────────────────────────────────────────────── */
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px; padding: 1.25rem 1.5rem;
+    }
+    .panel-title {
+      font-size: .72rem; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 1.2px;
+      margin-bottom: 1rem;
+    }
+
+    .chart-wrap { position: relative; height: 240px; }
+
+    /* ── Stat list ──────────────────────────────────────────────────────────── */
+    .stat-list { display: flex; flex-direction: column; gap: .6rem; }
+    .stat-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: .6rem .9rem;
+      background: rgba(255,255,255,.03);
+      border-radius: 8px; font-size: .9rem;
+    }
+    .stat-row span:first-child { color: var(--muted); }
+    .stat-row span:last-child  { font-weight: 600; }
+
+    /* ── Table ──────────────────────────────────────────────────────────────── */
+    table { width: 100%; border-collapse: collapse; font-size: .87rem; }
+    th {
+      text-align: left; padding: .6rem 1rem;
+      font-size: .7rem; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 1px;
+      border-bottom: 1px solid var(--border);
+    }
+    td { padding: .6rem 1rem; border-bottom: 1px solid rgba(255,255,255,.04); }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(99,179,237,.04); }
+
+    .badge {
+      display: inline-block; padding: .15rem .55rem;
+      border-radius: 20px; font-size: .72rem; font-weight: 600;
+    }
+    .b-green  { background: rgba(72,187,120,.18);  color: var(--green);  }
+    .b-gray   { background: rgba(113,128,150,.18); color: var(--muted);  }
+    .b-yellow { background: rgba(246,224,94,.18);  color: var(--yellow); }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>&#127968; Smart Home &mdash; Capteur URM09</h1>
+  <div class="header-right">
+    <span><span class="dot" id="dot"></span><span id="conn-status">Connexion…</span></span>
+    <span id="last-seen" style="color:var(--muted)">—</span>
+  </div>
+</header>
+
+<div id="alert-banner">
+  &#9888;&#65039; PRÉSENCE DÉTECTÉE &mdash; Distance : <span id="alert-dist">—</span> cm
+</div>
+
+<div class="container">
+
+  <!-- Status cards -->
+  <div class="cards">
+    <div class="card">
+      <div class="card-label">Distance</div>
+      <div class="card-value" id="c-dist" style="color:var(--blue)">—</div>
+      <div class="dist-bar-wrap"><div class="dist-bar" id="dist-bar" style="width:0%"></div></div>
+      <div class="card-unit">centimètres</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Seuil alerte</div>
+      <div class="card-value" style="color:var(--red)">12</div>
+      <div class="card-unit">centimètres</div>
+    </div>
+    <div class="card">
+      <div class="card-label">LED</div>
+      <div class="card-value" id="c-led" style="color:var(--muted)">OFF</div>
+      <div class="card-unit" id="c-led-sub">éteinte</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Présence</div>
+      <div class="card-value" id="c-pres" style="color:var(--muted)">Non</div>
+      <div class="card-unit">détection active</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Uptime Arduino</div>
+      <div class="card-value" id="c-uptime" style="color:var(--green)">—</div>
+      <div class="card-unit">secondes</div>
+    </div>
+  </div>
+
+  <!-- Chart + Stats -->
+  <div class="two-col">
+    <div class="panel">
+      <div class="panel-title">Distance en temps réel (60 dernières lectures)</div>
+      <div class="chart-wrap"><canvas id="chart"></canvas></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Statistiques globales</div>
+      <div class="stat-list">
+        <div class="stat-row"><span>Total lectures</span><span id="s-total">—</span></div>
+        <div class="stat-row"><span>Détections présence</span><span id="s-det">—</span></div>
+        <div class="stat-row"><span>Taux de détection</span><span id="s-rate">—</span></div>
+        <div class="stat-row"><span>Distance moyenne</span><span id="s-avg">—</span></div>
+        <div class="stat-row" style="border-top:1px solid var(--border);margin-top:.3rem;padding-top:.9rem">
+          <span>Lectures (1 h)</span><span id="s-h-read">—</span>
+        </div>
+        <div class="stat-row"><span>Détections (1 h)</span><span id="s-h-det">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent readings table -->
+  <div class="panel">
+    <div class="panel-title">Lectures récentes</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Horodatage</th>
+          <th>Distance (cm)</th>
+          <th>Présence</th>
+          <th>LED</th>
+          <th>Uptime (s)</th>
+        </tr>
+      </thead>
+      <tbody id="tbody">
+        <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:2rem">Chargement…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+const MAX_PTS = 60;
+const SEUIL   = 12;
+
+// ── Chart ─────────────────────────────────────────────────────────────────────
+const ctx = document.getElementById('chart').getContext('2d');
+const distChart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: 'Distance (cm)',
+        data: [],
+        borderColor: '#63b3ed',
+        backgroundColor: 'rgba(99,179,237,.08)',
+        borderWidth: 2, pointRadius: 2, tension: 0.35, fill: true,
+      },
+      {
+        label: 'Seuil 12 cm',
+        data: [],
+        borderColor: '#fc8181',
+        borderWidth: 1.5, borderDash: [6,4], pointRadius: 0, fill: false,
+      },
+    ],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    animation: { duration: 180 },
+    scales: {
+      x: { ticks: { color: '#718096', maxTicksLimit: 8, font: {size:11} }, grid: { color: '#2d3748' } },
+      y: { min: 0, max: 60, ticks: { color: '#718096', font: {size:11} }, grid: { color: '#2d3748' } },
+    },
+    plugins: { legend: { labels: { color: '#a0aec0', boxWidth: 12, font: {size:12} } } },
+  },
+});
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const set = (id, v) => document.getElementById(id).textContent = v;
+const fmtTime     = iso => new Date(iso).toLocaleTimeString('fr-FR');
+const fmtDateTime = iso => new Date(iso).toLocaleString('fr-FR');
+
+// ── Apply a sensor reading to the UI ─────────────────────────────────────────
+function applyReading(d) {
+  set('c-dist',   d.distance.toFixed(1));
+  set('c-uptime', d.uptime);
+  document.getElementById('dist-bar').style.width =
+    Math.min(d.distance / 50 * 100, 100).toFixed(1) + '%';
+
+  // LED
+  const ledEl = document.getElementById('c-led');
+  if (d.led_active) {
+    ledEl.textContent = 'ON'; ledEl.style.color = 'var(--yellow)';
+    set('c-led-sub', 'allumée');
+  } else {
+    ledEl.textContent = 'OFF'; ledEl.style.color = 'var(--muted)';
+    set('c-led-sub', 'éteinte');
+  }
+
+  // Présence
+  const presEl = document.getElementById('c-pres');
+  if (d.presence) {
+    presEl.textContent = 'OUI'; presEl.style.color = 'var(--green)';
+  } else {
+    presEl.textContent = 'Non'; presEl.style.color = 'var(--muted)';
+  }
+
+  // Alert banner
+  const banner = document.getElementById('alert-banner');
+  if (d.presence) { banner.classList.add('show'); set('alert-dist', d.distance.toFixed(1)); }
+  else            { banner.classList.remove('show'); }
+
+  // Chart
+  distChart.data.labels.push(fmtTime(d.timestamp));
+  distChart.data.datasets[0].data.push(d.distance);
+  distChart.data.datasets[1].data.push(SEUIL);
+  if (distChart.data.labels.length > MAX_PTS) {
+    distChart.data.labels.shift();
+    distChart.data.datasets[0].data.shift();
+    distChart.data.datasets[1].data.shift();
+  }
+  distChart.update();
+
+  set('last-seen', 'Mis à jour : ' + fmtTime(d.timestamp));
+  prependRow(d);
+}
+
+function prependRow(d) {
+  const tbody = document.getElementById('tbody');
+  const tr    = document.createElement('tr');
+  tr.innerHTML = `
+    <td>${fmtDateTime(d.timestamp)}</td>
+    <td>${d.distance.toFixed(1)}</td>
+    <td><span class="badge ${d.presence   ? 'b-green'  : 'b-gray'}">${d.presence   ? 'Oui' : 'Non'}</span></td>
+    <td><span class="badge ${d.led_active ? 'b-yellow' : 'b-gray'}">${d.led_active ? 'ON'  : 'OFF'}</span></td>
+    <td>${d.uptime}</td>
+  `;
+  tbody.insertBefore(tr, tbody.firstChild);
+  while (tbody.rows.length > 25) tbody.deleteRow(25);
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────────────
+function loadStats() {
+  fetch('/api/stats').then(r => r.json()).then(s => {
+    set('s-total',  s.total_readings.toLocaleString('fr-FR'));
+    set('s-det',    s.presence_detections.toLocaleString('fr-FR'));
+    set('s-rate',   s.detection_rate + ' %');
+    set('s-avg',    s.average_distance + ' cm');
+    set('s-h-read', s.last_hour_readings.toLocaleString('fr-FR'));
+    set('s-h-det',  s.last_hour_detections.toLocaleString('fr-FR'));
+  });
+}
+
+// ── Initial history ───────────────────────────────────────────────────────────
+function loadHistory() {
+  fetch('/api/readings?limit=60').then(r => r.json()).then(rows => {
+    document.getElementById('tbody').innerHTML = '';
+    rows.slice().reverse().forEach(prependRow);
+    rows.forEach(d => {
+      distChart.data.labels.push(fmtTime(d.timestamp));
+      distChart.data.datasets[0].data.push(d.distance);
+      distChart.data.datasets[1].data.push(SEUIL);
+    });
+    distChart.update();
+    if (rows.length) {
+      const latest = rows[rows.length - 1];
+      // Update cards without adding another row
+      set('c-dist',   latest.distance.toFixed(1));
+      set('c-uptime', latest.uptime);
+      document.getElementById('dist-bar').style.width =
+        Math.min(latest.distance / 50 * 100, 100).toFixed(1) + '%';
+    }
+  });
+}
+
+// ── Socket.IO ─────────────────────────────────────────────────────────────────
+const socket = io();
+socket.on('connect', () => {
+  set('conn-status', 'En ligne');
+  document.getElementById('dot').style.background = 'var(--green)';
+});
+socket.on('disconnect', () => {
+  set('conn-status', 'Hors ligne');
+  document.getElementById('dot').style.background = 'var(--red)';
+});
+socket.on('sensor_update', applyReading);
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadHistory();
+loadStats();
+setInterval(loadStats, 15000);
+</script>
+</body>
+</html>

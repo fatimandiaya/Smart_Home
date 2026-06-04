@@ -1,0 +1,13 @@
+# Base de données SQLite
+backend/instance/
+*.db
+*.db-journal
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Bridge logs
+*.log
