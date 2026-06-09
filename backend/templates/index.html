@@ -21,6 +21,7 @@
       --green:   #48bb78;
       --yellow:  #f6e05e;
       --red:     #fc8181;
+      --orange:  #f6ad55;
     }
 
     body {
@@ -51,15 +52,18 @@
     }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
 
-    /* ── Alert ─────────────────────────────────────────────────────────────── */
-    #alert-banner {
+    /* ── Alert banners ─────────────────────────────────────────────────────── */
+    .alert-banner {
       display: none;
-      background: linear-gradient(90deg, #c53030, #e53e3e);
       color: #fff; text-align: center;
       padding: .75rem 1rem;
       font-weight: 600; font-size: 1rem; letter-spacing: .5px;
     }
-    #alert-banner.show { display: block; }
+    .alert-banner.show { display: block; }
+    #alert-presence { background: linear-gradient(90deg, #c53030, #e53e3e); }
+    #alert-flame    { background: linear-gradient(90deg, #7b341e, #c05621);
+                      animation: flame-blink .6s ease-in-out infinite; }
+    @keyframes flame-blink { 0%,100%{opacity:1} 50%{opacity:.7} }
 
     /* ── Layout ────────────────────────────────────────────────────────────── */
     .container { max-width: 1400px; margin: 0 auto; padding: 1.5rem 2rem; }
@@ -77,6 +81,11 @@
       transition: border-color .25s;
     }
     .card:hover { border-color: var(--blue); }
+    .card.flame-active {
+      border-color: var(--orange) !important;
+      box-shadow: 0 0 16px rgba(246,173,85,.25);
+      animation: flame-blink .6s ease-in-out infinite;
+    }
     .card-label { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: .4rem; }
     .card-value { font-size: 2.2rem; font-weight: 700; line-height: 1; }
     .card-unit  { font-size: .8rem; color: var(--muted); margin-top: .3rem; }
@@ -128,6 +137,7 @@
     td { padding: .6rem 1rem; border-bottom: 1px solid rgba(255,255,255,.04); }
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: rgba(99,179,237,.04); }
+    tr.row-flame td { background: rgba(246,173,85,.07); }
 
     .badge {
       display: inline-block; padding: .15rem .55rem;
@@ -136,19 +146,24 @@
     .b-green  { background: rgba(72,187,120,.18);  color: var(--green);  }
     .b-gray   { background: rgba(113,128,150,.18); color: var(--muted);  }
     .b-yellow { background: rgba(246,224,94,.18);  color: var(--yellow); }
+    .b-red    { background: rgba(252,129,129,.18); color: var(--red);    }
+    .b-orange { background: rgba(246,173,85,.18);  color: var(--orange); }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>&#127968; Smart Home &mdash; Capteur URM09</h1>
+  <h1>&#127968; Smart Home &mdash; URM09 + DFR0076 + DFR0026</h1>
   <div class="header-right">
     <span><span class="dot" id="dot"></span><span id="conn-status">Connexion…</span></span>
     <span id="last-seen" style="color:var(--muted)">—</span>
   </div>
 </header>
 
-<div id="alert-banner">
+<div id="alert-flame" class="alert-banner">
+  &#128293; FLAMME DÉTECTÉE &mdash; Alerte incendie !
+</div>
+<div id="alert-presence" class="alert-banner">
   &#9888;&#65039; PRÉSENCE DÉTECTÉE &mdash; Distance : <span id="alert-dist">—</span> cm
 </div>
 
@@ -163,7 +178,7 @@
       <div class="card-unit">centimètres</div>
     </div>
     <div class="card">
-      <div class="card-label">Seuil alerte</div>
+      <div class="card-label">Seuil présence</div>
       <div class="card-value" style="color:var(--red)">12</div>
       <div class="card-unit">centimètres</div>
     </div>
@@ -176,6 +191,16 @@
       <div class="card-label">Présence</div>
       <div class="card-value" id="c-pres" style="color:var(--muted)">Non</div>
       <div class="card-unit">détection active</div>
+    </div>
+    <div class="card" id="card-flame">
+      <div class="card-label">Fumée / Flamme</div>
+      <div class="card-value" id="c-flame" style="color:var(--muted)">—</div>
+      <div class="card-unit" id="c-flame-sub">DFR0076</div>
+    </div>
+    <div class="card" id="card-light">
+      <div class="card-label">Luminosité</div>
+      <div class="card-value" id="c-light" style="color:var(--muted)">—</div>
+      <div class="card-unit" id="c-light-sub">DFR0026</div>
     </div>
     <div class="card">
       <div class="card-label">Uptime Arduino</div>
@@ -199,9 +224,17 @@
         <div class="stat-row"><span>Taux de détection</span><span id="s-rate">—</span></div>
         <div class="stat-row"><span>Distance moyenne</span><span id="s-avg">—</span></div>
         <div class="stat-row" style="border-top:1px solid var(--border);margin-top:.3rem;padding-top:.9rem">
+          <span>&#128293; Alertes flamme</span><span id="s-flame" style="color:var(--orange)">—</span>
+        </div>
+        <div class="stat-row">
           <span>Lectures (1 h)</span><span id="s-h-read">—</span>
         </div>
         <div class="stat-row"><span>Détections (1 h)</span><span id="s-h-det">—</span></div>
+        <div class="stat-row"><span>Flammes (1 h)</span><span id="s-h-flame" style="color:var(--orange)">—</span></div>
+        <div class="stat-row" style="border-top:1px solid var(--border);margin-top:.3rem;padding-top:.9rem">
+          <span>&#127769; Faible luminosité</span><span id="s-lowlight" style="color:var(--yellow)">—</span>
+        </div>
+        <div class="stat-row"><span>Luminosité moyenne</span><span id="s-avg-light">—</span></div>
       </div>
     </div>
   </div>
@@ -215,12 +248,14 @@
           <th>Horodatage</th>
           <th>Distance (cm)</th>
           <th>Présence</th>
+          <th>Flamme</th>
+          <th>Luminosité</th>
           <th>LED</th>
           <th>Uptime (s)</th>
         </tr>
       </thead>
       <tbody id="tbody">
-        <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:2rem">Chargement…</td></tr>
+        <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:2rem">Chargement…</td></tr>
       </tbody>
     </table>
   </div>
@@ -276,14 +311,38 @@ function applyReading(d) {
   document.getElementById('dist-bar').style.width =
     Math.min(d.distance / 50 * 100, 100).toFixed(1) + '%';
 
-  // LED
+  // LED : vert si flamme+présence, rouge si flamme, blanc si présence, jaune si luminosité faible
   const ledEl = document.getElementById('c-led');
-  if (d.led_active) {
-    ledEl.textContent = 'ON'; ledEl.style.color = 'var(--yellow)';
-    set('c-led-sub', 'allumée');
+  if (d.flame && d.presence) {
+    ledEl.textContent = 'VERT'; ledEl.style.color = 'var(--green)';
+    set('c-led-sub', 'flamme + présence');
+  } else if (d.flame) {
+    ledEl.textContent = 'ROUGE'; ledEl.style.color = 'var(--red)';
+    set('c-led-sub', 'alerte flamme');
+  } else if (d.presence) {
+    ledEl.textContent = 'BLANC'; ledEl.style.color = 'var(--text)';
+    set('c-led-sub', 'présence détectée');
+  } else if (d.low_light) {
+    ledEl.textContent = 'JAUNE'; ledEl.style.color = 'var(--yellow)';
+    set('c-led-sub', 'luminosité faible');
   } else {
     ledEl.textContent = 'OFF'; ledEl.style.color = 'var(--muted)';
     set('c-led-sub', 'éteinte');
+  }
+
+  // Luminosité
+  const lightCard = document.getElementById('card-light');
+  const lightEl   = document.getElementById('c-light');
+  const lightPct  = Math.round(d.light_level / 1023 * 100);
+  lightEl.textContent = lightPct + '%';
+  if (d.low_light) {
+    lightEl.style.color = 'var(--yellow)';
+    set('c-light-sub', 'faible — LED allumée');
+    lightCard.style.borderColor = 'var(--yellow)';
+  } else {
+    lightEl.style.color = 'var(--green)';
+    set('c-light-sub', 'suffisante');
+    lightCard.style.borderColor = '';
   }
 
   // Présence
@@ -294,10 +353,25 @@ function applyReading(d) {
     presEl.textContent = 'Non'; presEl.style.color = 'var(--muted)';
   }
 
-  // Alert banner
-  const banner = document.getElementById('alert-banner');
-  if (d.presence) { banner.classList.add('show'); set('alert-dist', d.distance.toFixed(1)); }
-  else            { banner.classList.remove('show'); }
+  // Flamme
+  const flameCard = document.getElementById('card-flame');
+  const flameEl   = document.getElementById('c-flame');
+  if (d.flame) {
+    flameEl.textContent = 'ALERTE'; flameEl.style.color = 'var(--orange)';
+    set('c-flame-sub', 'flamme détectée !');
+    flameCard.classList.add('flame-active');
+  } else {
+    flameEl.textContent = 'OK'; flameEl.style.color = 'var(--green)';
+    set('c-flame-sub', 'aucune flamme');
+    flameCard.classList.remove('flame-active');
+  }
+
+  // Banners : les deux s'affichent en parallèle si besoin
+  const bannerFlame    = document.getElementById('alert-flame');
+  const bannerPresence = document.getElementById('alert-presence');
+  d.flame    ? bannerFlame.classList.add('show')    : bannerFlame.classList.remove('show');
+  if (d.presence) { bannerPresence.classList.add('show'); set('alert-dist', d.distance.toFixed(1)); }
+  else            { bannerPresence.classList.remove('show'); }
 
   // Chart
   distChart.data.labels.push(fmtTime(d.timestamp));
@@ -317,11 +391,14 @@ function applyReading(d) {
 function prependRow(d) {
   const tbody = document.getElementById('tbody');
   const tr    = document.createElement('tr');
+  if (d.flame) tr.classList.add('row-flame');
   tr.innerHTML = `
     <td>${fmtDateTime(d.timestamp)}</td>
     <td>${d.distance.toFixed(1)}</td>
-    <td><span class="badge ${d.presence   ? 'b-green'  : 'b-gray'}">${d.presence   ? 'Oui' : 'Non'}</span></td>
-    <td><span class="badge ${d.led_active ? 'b-yellow' : 'b-gray'}">${d.led_active ? 'ON'  : 'OFF'}</span></td>
+    <td><span class="badge ${d.presence ? 'b-green'  : 'b-gray'}">${d.presence ? 'Oui' : 'Non'}</span></td>
+    <td><span class="badge ${d.flame     ? 'b-orange' : 'b-gray'}">${d.flame     ? '&#128293; OUI' : 'Non'}</span></td>
+    <td><span class="badge ${d.low_light ? 'b-yellow' : 'b-gray'}">${Math.round((d.light_level||0)/1023*100)}% ${d.low_light ? '&#127769;' : ''}</span></td>
+    <td><span class="badge ${d.flame && d.presence ? 'b-green' : d.flame ? 'b-red' : d.presence ? 'b-gray' : d.low_light ? 'b-yellow' : 'b-gray'}">${d.flame && d.presence ? 'VERT' : d.flame ? 'ROUGE' : d.presence ? 'BLANC' : d.low_light ? 'JAUNE' : 'OFF'}</span></td>
     <td>${d.uptime}</td>
   `;
   tbody.insertBefore(tr, tbody.firstChild);
@@ -331,12 +408,16 @@ function prependRow(d) {
 // ── Stats ─────────────────────────────────────────────────────────────────────
 function loadStats() {
   fetch('/api/stats').then(r => r.json()).then(s => {
-    set('s-total',  s.total_readings.toLocaleString('fr-FR'));
-    set('s-det',    s.presence_detections.toLocaleString('fr-FR'));
-    set('s-rate',   s.detection_rate + ' %');
-    set('s-avg',    s.average_distance + ' cm');
-    set('s-h-read', s.last_hour_readings.toLocaleString('fr-FR'));
-    set('s-h-det',  s.last_hour_detections.toLocaleString('fr-FR'));
+    set('s-total',   s.total_readings.toLocaleString('fr-FR'));
+    set('s-det',     s.presence_detections.toLocaleString('fr-FR'));
+    set('s-rate',    s.detection_rate + ' %');
+    set('s-avg',     s.average_distance + ' cm');
+    set('s-flame',   s.flame_detections.toLocaleString('fr-FR'));
+    set('s-h-read',  s.last_hour_readings.toLocaleString('fr-FR'));
+    set('s-h-det',      s.last_hour_detections.toLocaleString('fr-FR'));
+    set('s-h-flame',    s.last_hour_flames.toLocaleString('fr-FR'));
+    set('s-lowlight',   s.low_light_count.toLocaleString('fr-FR'));
+    set('s-avg-light',  s.average_light + ' / 1023');
   });
 }
 
@@ -353,7 +434,6 @@ function loadHistory() {
     distChart.update();
     if (rows.length) {
       const latest = rows[rows.length - 1];
-      // Update cards without adding another row
       set('c-dist',   latest.distance.toFixed(1));
       set('c-uptime', latest.uptime);
       document.getElementById('dist-bar').style.width =

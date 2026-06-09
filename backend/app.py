@@ -16,7 +16,7 @@ import paho.mqtt.client as mqtt
 from flask import Flask, jsonify, render_template, request
 from flask_socketio import SocketIO
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import func
+from sqlalchemy import func, text
 
 # ── App ────────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -37,21 +37,27 @@ MQTT_TOPIC  = 'home/sensors/urm09'
 class SensorReading(db.Model):
     __tablename__ = 'sensor_readings'
 
-    id         = db.Column(db.Integer,  primary_key=True)
-    distance   = db.Column(db.Float,   nullable=False)
-    led_active = db.Column(db.Boolean, default=False)
-    presence   = db.Column(db.Boolean, default=False)
-    uptime     = db.Column(db.Integer, default=0)
-    timestamp  = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    id          = db.Column(db.Integer,  primary_key=True)
+    distance    = db.Column(db.Float,   nullable=False)
+    led_active  = db.Column(db.Boolean, default=False)
+    presence    = db.Column(db.Boolean, default=False)
+    uptime      = db.Column(db.Integer, default=0)
+    flame       = db.Column(db.Boolean, default=False)
+    light_level = db.Column(db.Integer, default=0)
+    low_light   = db.Column(db.Boolean, default=False)
+    timestamp   = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
     def to_dict(self) -> dict:
         return {
-            'id':         self.id,
-            'distance':   round(self.distance, 1),
-            'led_active': self.led_active,
-            'presence':   self.presence,
-            'uptime':     self.uptime,
-            'timestamp':  self.timestamp.isoformat(),
+            'id':          self.id,
+            'distance':    round(self.distance, 1),
+            'led_active':  self.led_active,
+            'presence':    self.presence,
+            'flame':       self.flame,
+            'light_level': self.light_level,
+            'low_light':   self.low_light,
+            'uptime':      self.uptime,
+            'timestamp':   self.timestamp.isoformat(),
         }
 
 
@@ -85,7 +91,10 @@ def get_latest():
 def get_stats():
     total      = SensorReading.query.count()
     detections = SensorReading.query.filter_by(presence=True).count()
+    flames     = SensorReading.query.filter_by(flame=True).count()
+    low_lights = SensorReading.query.filter_by(low_light=True).count()
     avg_dist   = db.session.query(func.avg(SensorReading.distance)).scalar()
+    avg_light  = db.session.query(func.avg(SensorReading.light_level)).scalar()
 
     one_hour_ago = datetime.utcnow() - timedelta(hours=1)
     recent       = SensorReading.query.filter(SensorReading.timestamp >= one_hour_ago).count()
@@ -93,14 +102,22 @@ def get_stats():
         SensorReading.timestamp >= one_hour_ago,
         SensorReading.presence  == True,
     ).count()
+    recent_flame = SensorReading.query.filter(
+        SensorReading.timestamp >= one_hour_ago,
+        SensorReading.flame     == True,
+    ).count()
 
     return jsonify({
         'total_readings':       total,
         'presence_detections':  detections,
         'detection_rate':       round(detections / total * 100, 1) if total else 0,
         'average_distance':     round(avg_dist, 1) if avg_dist else 0,
+        'flame_detections':     flames,
+        'low_light_count':      low_lights,
+        'average_light':        round(avg_light, 0) if avg_light else 0,
         'last_hour_readings':   recent,
         'last_hour_detections': recent_det,
+        'last_hour_flames':     recent_flame,
     })
 
 
@@ -137,10 +154,13 @@ def on_mqtt_message(client, _ud, msg):
 
         with app.app_context():
             reading = SensorReading(
-                distance   = float(data['distance']),
-                led_active = bool(data.get('led',      False)),
-                presence   = bool(data.get('presence', False)),
-                uptime     = int(data.get('uptime',    0)),
+                distance    = float(data['distance']),
+                led_active  = bool(data.get('led',         False)),
+                presence    = bool(data.get('presence',    False)),
+                flame       = bool(data.get('flame',       False)),
+                light_level = int(data.get('light_level',  0)),
+                low_light   = bool(data.get('low_light',   False)),
+                uptime      = int(data.get('uptime',       0)),
             )
             db.session.add(reading)
             db.session.commit()
@@ -170,6 +190,16 @@ def start_mqtt():
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
+        with db.engine.connect() as conn:
+            cols = [r[1] for r in conn.execute(text('PRAGMA table_info(sensor_readings)')).fetchall()]
+            for col, definition in [
+                ('light_level', 'INTEGER DEFAULT 0'),
+                ('low_light',   'BOOLEAN DEFAULT 0'),
+            ]:
+                if col not in cols:
+                    conn.execute(text(f'ALTER TABLE sensor_readings ADD COLUMN {col} {definition}'))
+                    print(f'[DB] Colonne {col} ajoutée')
+            conn.commit()
         print('[DB] Base de données prête (smart_home.db)')
 
     mqtt_thread = threading.Thread(target=start_mqtt, daemon=True)
