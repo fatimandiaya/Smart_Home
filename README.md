@@ -64,6 +64,3 @@ Une solution alternative a été mise en place.
 
 ---
 
-
-## 📄 Licence
-Projet à but éducatif, libre d’utilisation et de modification.
